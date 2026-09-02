@@ -1,0 +1,112 @@
+{
+  "name": "Crunchyroll Seasonal Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "monthsInterval": 1,
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "491619df-5e6d-454b-ac0f-2717723242aa",
+      "name": "Monthly Discovery",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const requested = $json.season;\nconst month = $now.month;\nconst name = month <= 3 ? 'winter' : month <= 6 ? 'spring' : month <= 9 ? 'summer' : 'fall';\nconst season = requested === undefined || requested === null || requested === ''\n  ? `${name}-${$now.year}`\n  : String(requested).trim().toLowerCase();\nif (!/^(spring|summer|fall|winter)-\\d{4}$/.test(season)) {\n  throw new Error(`Invalid season: ${season}`);\n}\nreturn [{ json: { season } }];"
+      },
+      "id": "f8015965-db8c-4132-a8a7-393333f4d46f",
+      "name": "Resolve and Validate Season",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar --season {{ $json.season }} --discover --discovery-state /var/lib/crunchy-calendar/discovery.json"
+      },
+      "id": "0df89a6c-0713-42b6-b538-f05f75714f02",
+      "name": "Run Seasonal Discovery",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (typeof $json.stdout !== 'string' || $json.stdout.trim() === '') {\n  throw new Error('Discovery command returned no JSON');\n}\nlet payload;\ntry {\n  payload = JSON.parse($json.stdout);\n} catch (error) {\n  throw new Error(`Discovery command returned invalid JSON: ${error.message}`);\n}\nif (!/^(spring|summer|fall|winter)-\\d{4}$/.test(payload.season ?? '')) {\n  throw new Error('Discovery response has an invalid season');\n}\nif (!Number.isInteger(payload.show_count) || payload.show_count < 1) {\n  throw new Error('Discovery response has an invalid show_count');\n}\nif (!Array.isArray(payload.new_shows) || !Array.isArray(payload.seen_shows)) {\n  throw new Error('Discovery response is missing show arrays');\n}\nif (payload.show_count !== payload.new_shows.length + payload.seen_shows.length) {\n  throw new Error('Discovery response show_count does not match its arrays');\n}\nreturn [{ json: payload }];"
+      },
+      "id": "e9ca1c73-ea0e-4f91-89b6-da191f4ab88c",
+      "name": "Validate Discovery JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Monthly Discovery": {
+      "main": [
+        [
+          {
+            "node": "Resolve and Validate Season",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve and Validate Season": {
+      "main": [
+        [
+          {
+            "node": "Run Seasonal Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Seasonal Discovery": {
+      "main": [
+        [
+          {
+            "node": "Validate Discovery JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "active": false,
+  "versionId": "224d3c23-16dd-480b-8942-1e6ed623641a",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

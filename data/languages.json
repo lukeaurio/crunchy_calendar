@@ -1,0 +1,7 @@
+{
+  "enabled": ["japanese", "english"],
+  "patterns": {
+    "japanese": ["Japanese", "日本語"],
+    "english": ["English"]
+  }
+}
