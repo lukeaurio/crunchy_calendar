@@ -1,6 +1,7 @@
 
 # --- Python ---
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -20,19 +21,31 @@ wheels/
 .installed.cfg
 *.egg
 .pytest_cache/
+**/.pytest_cache/
 .mypy_cache/
+**/.mypy_cache/
 .ruff_cache/
+**/.ruff_cache/
 .hypothesis/
+**/.hypothesis/
 .tox/
+**/.tox/
 .nox/
+**/.nox/
 .coverage
 .coverage.*
 htmlcov/
+**/htmlcov/
 .venv/
+**/.venv/
 venv/
+**/venv/
 env/
+**/env/
 ENV/
+**/ENV/
 .ipynb_checkpoints/
+**/.ipynb_checkpoints/
 
 # --- Nix ---
 result
@@ -45,8 +58,10 @@ Thumbs.db
 .idea/
 .vscode/
 
-# --- Data directories ---
-data/
+# --- Generated runtime data ---
+/data/discovery.json
+/data/snapshots/
+/schedule.ics
 
 # --- Potentially sensitive files ---
 .env
