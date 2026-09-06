@@ -21,8 +21,9 @@ library.
 
 ## Import directly from GitHub
 
-For a public repository, open a workflow in n8n and choose **three dots ->
-Import from URL**. Use one of these raw URLs:
+Once the corrected workflow exports are committed to the repository, open a
+workflow in n8n and choose **three dots -> Import from URL**. Use one of these
+raw URLs:
 
 ```text
 https://raw.githubusercontent.com/OWNER/REPOSITORY/BRANCH/n8n/github/weekly-forecast.json
@@ -33,7 +34,7 @@ GitHub's raw URL for a private repository requires authentication that n8n's
 editor URL importer can't supply. In that case, download the export while
 signed in to GitHub and use **Import from File** instead.
 
-The exports are inactive and already point at
+The workspace copies are inactive and already point at
 `https://github.com/lukeaurio/crunchy_calendar.git`.
 
 For a public source repository, leave Authentication set to **None**. For a private
