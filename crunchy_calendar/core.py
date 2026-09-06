@@ -47,6 +47,9 @@ class Release:
     episode: int | None
     starts_at: str
     url: str
+    predicted: bool = False
+    source_starts_at: str | None = None
+    source_episode: int | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +109,13 @@ def previous_week_start(today: date | None = None) -> date:
         raise ValueError("today must be a date")
     this_monday = today - timedelta(days=today.weekday())
     return this_monday - timedelta(days=7)
+
+
+def current_week_start(today: date | None = None) -> date:
+    today = today or date.today()
+    if not isinstance(today, date):
+        raise ValueError("today must be a date")
+    return today - timedelta(days=today.weekday())
 
 
 def current_season(today: date | None = None) -> str:
@@ -234,13 +244,19 @@ def infer_language(
 ) -> tuple[str, str]:
     patterns = patterns or DEFAULT_LANGUAGE_CONFIG["patterns"]
     clean = " ".join(unescape(title).split()).strip()
-    match = re.search(r"\s+\(([^()]*)\)\s*$", clean)
-    if match:
-        suffix = match.group(1).casefold()
-        for language, values in patterns.items():
-            if any(suffix == value.casefold() for value in values):
-                return clean[: match.start()].strip(), language
-        return clean, f"other:{match.group(1)}"
+    if clean.endswith(")"):
+        depth = 0
+        for index in range(len(clean) - 1, -1, -1):
+            if clean[index] == ")":
+                depth += 1
+            elif clean[index] == "(":
+                depth -= 1
+                if depth == 0 and index > 0 and clean[index - 1].isspace():
+                    suffix = clean[index + 1 : -1]
+                    for language, values in patterns.items():
+                        if any(suffix.casefold() == value.casefold() for value in values):
+                            return clean[:index].strip(), language
+                    return clean, f"other:{suffix}"
     # Crunchyroll leaves the original Japanese audio entry unsuffixed.
     return clean, "japanese"
 
@@ -342,7 +358,7 @@ def parse_calendar(
     parser.feed(html)
     if not parser.releases:
         raise RuntimeError("calendar contained no matching releases; page format may have changed")
-    return parser.releases
+    return list(dict.fromkeys(parser.releases))
 
 
 def normalize_title(value: str) -> str:
@@ -536,6 +552,41 @@ def filter_releases(releases: list[Release], watching: list[str]) -> list[Releas
     return [release for release in releases if normalize_title(release.title) in watched_titles]
 
 
+def forecast_releases(
+    releases: list[Release], source_week_start: date, target_week_start: date
+) -> list[Release]:
+    if not isinstance(source_week_start, date) or source_week_start.weekday() != 0:
+        raise ValueError("source_week_start must be a Monday date")
+    if not isinstance(target_week_start, date) or target_week_start.weekday() != 0:
+        raise ValueError("target_week_start must be a Monday date")
+    if target_week_start - source_week_start != timedelta(days=7):
+        raise ValueError("target week must immediately follow source week")
+    if not isinstance(releases, list) or not all(isinstance(item, Release) for item in releases):
+        raise ValueError("releases must be a list of Release values")
+
+    forecast: list[Release] = []
+    for release in releases:
+        try:
+            source_start = datetime.fromisoformat(release.starts_at.replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as exc:
+            raise ValueError(f"release has invalid starts_at value: {release.starts_at!r}") from exc
+        if source_start.tzinfo is None:
+            raise ValueError("release starts_at must include a timezone")
+        forecast.append(
+            Release(
+                title=release.title,
+                language=release.language,
+                episode=release.episode + 1 if release.episode is not None else None,
+                starts_at=(source_start + timedelta(days=7)).isoformat(),
+                url=release.url,
+                predicted=True,
+                source_starts_at=source_start.isoformat(),
+                source_episode=release.episode,
+            )
+        )
+    return forecast
+
+
 def make_ics(releases: list[Release], calendar_name: str = "Crunchyroll") -> str:
     def escape(value: str) -> str:
         return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
@@ -551,6 +602,12 @@ def make_ics(releases: list[Release], calendar_name: str = "Crunchyroll") -> str
         uid_source = f"{release.title}|{release.episode}|{release.starts_at}|{release.language}"
         uid = hashlib.sha256(uid_source.encode()).hexdigest()[:24]
         summary = f"{release.title} - Episode {release.episode}" if release.episode else release.title
+        description = [release.language]
+        if release.predicted:
+            description.append("Predicted from the previous week's Crunchyroll release")
+            if release.source_starts_at:
+                description.append(f"Source airtime: {release.source_starts_at}")
+        description.append(release.url)
         lines.extend(
             [
                 "BEGIN:VEVENT",
@@ -558,7 +615,8 @@ def make_ics(releases: list[Release], calendar_name: str = "Crunchyroll") -> str
                 f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
                 f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}",
                 f"SUMMARY:{escape(summary)}",
-                f"DESCRIPTION:{escape(release.language)}\\n{escape(release.url)}",
+                f"DESCRIPTION:{escape(chr(10).join(description))}",
+                *(["STATUS:TENTATIVE"] if release.predicted else []),
                 "END:VEVENT",
             ]
         )
@@ -568,7 +626,10 @@ def make_ics(releases: list[Release], calendar_name: str = "Crunchyroll") -> str
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Scrape Crunchyroll schedules without a browser")
-    parser.add_argument("--date", help="Monday starting the target week (YYYY-MM-DD)")
+    parser.add_argument(
+        "--date",
+        help="Monday starting the week to predict (YYYY-MM-DD); defaults to the current week",
+    )
     parser.add_argument("--watching", type=Path, default=Path("data/watching.json"))
     parser.add_argument("--format", choices=("json", "ics"), default="json")
     parser.add_argument("--languages", type=Path, default=Path("data/languages.json"))
@@ -584,18 +645,22 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write("\n")
             return 0
 
-        week = parse_monday(args.date) if args.date else previous_week_start()
+        target_week = parse_monday(args.date) if args.date else current_week_start()
+        source_week = target_week - timedelta(days=7)
         enabled_languages, language_patterns = load_language_config(args.languages)
-        releases = parse_calendar(fetch_calendar(week), enabled_languages, language_patterns)
+        releases = parse_calendar(fetch_calendar(source_week), enabled_languages, language_patterns)
         selected = releases if args.all else filter_releases(releases, load_watching(args.watching))
+        forecast = forecast_releases(selected, source_week, target_week)
         if args.format == "ics":
-            sys.stdout.write(make_ics(selected))
+            sys.stdout.write(make_ics(forecast, calendar_name="Crunchyroll Weekly Forecast"))
         else:
             json.dump(
                 {
-                    "week_start": week.isoformat(),
+                    "week_start": target_week.isoformat(),
+                    "source_week_start": source_week.isoformat(),
+                    "predicted": True,
                     "languages": sorted(enabled_languages),
-                    "releases": [asdict(item) for item in selected],
+                    "releases": [asdict(item) for item in forecast],
                 },
                 sys.stdout,
                 indent=2,

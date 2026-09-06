@@ -1,0 +1,90 @@
+{
+  "name": "Crunchyroll Weekly Forecast",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [1],
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "e93c7528-5be0-4bb8-b1d3-5d633e5c46d2",
+      "name": "Monday Morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-520, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const weekStart = $now.startOf('week').toISODate();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(weekStart)) {\n  throw new Error(`Could not resolve week start: ${weekStart}`);\n}\nconst parsed = new Date(`${weekStart}T00:00:00Z`);\nif (Number.isNaN(parsed.getTime()) || parsed.getUTCDay() !== 1) {\n  throw new Error(`Resolved week start is not a Monday: ${weekStart}`);\n}\nreturn [{ json: { week_start: weekStart } }];"
+      },
+      "id": "9680d055-0e60-4518-a1e3-a39dc5434587",
+      "name": "Resolve Target Monday",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-280, 0]
+    },
+    {
+      "parameters": {
+        "command": "=nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar --date {{ $json.week_start }} --watching /opt/crunchyCalendar/data/watching.json --languages /opt/crunchyCalendar/data/languages.json --format json"
+      },
+      "id": "c7ec5a7e-2c94-48c6-b829-100823dc7f09",
+      "name": "Build Weekly Forecast",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [-40, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (typeof $json.stdout !== 'string' || $json.stdout.trim() === '') {\n  throw new Error('Forecast command returned no JSON');\n}\nlet payload;\ntry {\n  payload = JSON.parse($json.stdout);\n} catch (error) {\n  throw new Error(`Forecast command returned invalid JSON: ${error.message}`);\n}\nconst monday = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!monday.test(payload.week_start ?? '') || !monday.test(payload.source_week_start ?? '')) {\n  throw new Error('Forecast response has invalid week dates');\n}\nconst target = new Date(`${payload.week_start}T00:00:00Z`);\nconst source = new Date(`${payload.source_week_start}T00:00:00Z`);\nif (Number.isNaN(target.getTime()) || Number.isNaN(source.getTime()) || target - source !== 7 * 86400000) {\n  throw new Error('Forecast source must be exactly one week before its target');\n}\nif (payload.predicted !== true || !Array.isArray(payload.languages) || !Array.isArray(payload.releases)) {\n  throw new Error('Forecast response is missing prediction metadata or arrays');\n}\nfor (const release of payload.releases) {\n  if (!release || typeof release.title !== 'string' || release.title.trim() === '' || typeof release.language !== 'string' || release.language.trim() === '' || typeof release.starts_at !== 'string' || Number.isNaN(Date.parse(release.starts_at)) || typeof release.source_starts_at !== 'string' || Number.isNaN(Date.parse(release.source_starts_at)) || typeof release.url !== 'string' || !release.url.startsWith('https://www.crunchyroll.com/') || release.predicted !== true) {\n    throw new Error('Forecast response contains an invalid release');\n  }\n  if (Date.parse(release.starts_at) - Date.parse(release.source_starts_at) !== 7 * 86400000) {\n    throw new Error(`Forecast release is not seven days after its source: ${release.title}`);\n  }\n}\nreturn [{ json: payload }];"
+      },
+      "id": "c636b9a1-9a57-4233-8c97-343d85c25ac4",
+      "name": "Validate Forecast JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nreturn payload.releases.map((release) => ({\n  json: {\n    week_start: payload.week_start,\n    source_week_start: payload.source_week_start,\n    ...release\n  }\n}));"
+      },
+      "id": "7bf56560-4fc6-407c-bc45-ab6973bed9de",
+      "name": "One Item Per Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    }
+  ],
+  "connections": {
+    "Monday Morning": {
+      "main": [[{"node": "Resolve Target Monday", "type": "main", "index": 0}]]
+    },
+    "Resolve Target Monday": {
+      "main": [[{"node": "Build Weekly Forecast", "type": "main", "index": 0}]]
+    },
+    "Build Weekly Forecast": {
+      "main": [[{"node": "Validate Forecast JSON", "type": "main", "index": 0}]]
+    },
+    "Validate Forecast JSON": {
+      "main": [[{"node": "One Item Per Event", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "active": false,
+  "versionId": "73f75a3f-4a44-4aee-8c7d-28a562ad3c79",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

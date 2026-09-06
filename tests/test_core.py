@@ -7,9 +7,11 @@ from pathlib import Path
 from crunchy_calendar.core import (
     SeasonalShow,
     current_season,
+    current_week_start,
     discover,
     discover_season,
     filter_releases,
+    forecast_releases,
     infer_language,
     load_language_config,
     load_watching,
@@ -57,6 +59,7 @@ class CoreTests(unittest.TestCase):
     def test_dates_and_seasons_are_validated(self):
         self.assertEqual(parse_monday("2026-08-24"), date(2026, 8, 24))
         self.assertEqual(previous_week_start(date(2026, 9, 1)), date(2026, 8, 24))
+        self.assertEqual(current_week_start(date(2026, 9, 1)), date(2026, 8, 31))
         self.assertEqual(current_season(date(2026, 9, 1)), "summer-2026")
         self.assertEqual(validate_season("Summer-2026"), "summer-2026")
         with self.assertRaisesRegex(ValueError, "not a Monday"):
@@ -68,6 +71,9 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(infer_language("Show"), ("Show", "japanese"))
         self.assertEqual(infer_language("Show (English)"), ("Show", "english"))
         self.assertEqual(infer_language("Show (Deutsch)")[1], "other:Deutsch")
+        self.assertEqual(
+            infer_language("Show (Português (Brasil))")[1], "other:Português (Brasil)"
+        )
 
     def test_calendar_parser_filters_languages_and_makes_absolute_urls(self):
         releases = parse_calendar(CALENDAR_HTML, {"japanese", "english"})
@@ -79,6 +85,7 @@ class CoreTests(unittest.TestCase):
             ],
         )
         self.assertTrue(all(item.url.startswith("https://www.crunchyroll.com/watch/") for item in releases))
+        self.assertEqual(len(parse_calendar(CALENDAR_HTML + CALENDAR_HTML, {"japanese", "english"})), 2)
 
     def test_season_payload_maps_only_real_series(self):
         shows, total = parse_season_payload(SEASON_PAYLOAD)
@@ -97,9 +104,20 @@ class CoreTests(unittest.TestCase):
         releases = parse_calendar(CALENDAR_HTML, {"japanese", "english"})
         selected = filter_releases(releases, ["Witch Hat Atelier"])
         self.assertEqual(len(selected), 2)
-        calendar = make_ics(selected)
-        self.assertIn("SUMMARY:Witch Hat Atelier Season 1 - Episode 10", calendar)
+        forecast = forecast_releases(selected, date(2026, 8, 24), date(2026, 8, 31))
+        self.assertEqual(forecast[0].episode, 11)
+        self.assertEqual(forecast[0].starts_at, "2026-08-31T14:00:00+00:00")
+        self.assertEqual(forecast[0].source_starts_at, "2026-08-24T14:00:00+00:00")
+        self.assertTrue(forecast[0].predicted)
+        calendar = make_ics(forecast)
+        self.assertIn("DTSTART:20260831T140000Z", calendar)
+        self.assertIn("SUMMARY:Witch Hat Atelier Season 1 - Episode 11", calendar)
+        self.assertIn("STATUS:TENTATIVE", calendar)
+        self.assertIn("Predicted from the previous week's Crunchyroll release", calendar)
         self.assertTrue(calendar.endswith("END:VCALENDAR\r\n"))
+
+        with self.assertRaisesRegex(ValueError, "immediately follow"):
+            forecast_releases(selected, date(2026, 8, 24), date(2026, 9, 7))
 
     def test_editable_files_are_strictly_validated(self):
         with tempfile.TemporaryDirectory() as directory:
