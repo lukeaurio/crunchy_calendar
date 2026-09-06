@@ -1,0 +1,13 @@
+apiVersion: v2
+name: crunchy-calendar
+description: Weekly Crunchyroll forecast email with an internal Postfix relay
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - crunchyroll
+  - calendar
+  - smtp
+  - cronjob
+maintainers:
+  - name: lukeaurio

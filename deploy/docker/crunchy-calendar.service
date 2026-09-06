@@ -1,0 +1,10 @@
+[Unit]
+Description=Email the weekly Crunchyroll ICS forecast
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/crunchy-calendar/runtime.env
+ExecStartPre=/usr/bin/test -n ${CRUNCHY_CALENDAR_IMAGE}
+ExecStart=/usr/bin/docker run --rm --pull=always --name=crunchy-calendar-weekly --read-only --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64 --memory=256m --tmpfs=/tmp:rw,noexec,nosuid,size=8m --env-file=/etc/crunchy-calendar/runtime.env --mount=type=bind,src=/etc/crunchy-calendar/smtp-password,dst=/run/secrets/smtp-password,readonly ${CRUNCHY_CALENDAR_IMAGE}

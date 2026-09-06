@@ -638,6 +638,24 @@ def make_ics(releases: list[Release], calendar_name: str = "Crunchyroll") -> str
     return "\r\n".join(lines) + "\r\n"
 
 
+def weekly_forecast(
+    target_week: date,
+    watching_path: Path = Path("data/watching.json"),
+    languages_path: Path = Path("data/languages.json"),
+    include_all: bool = False,
+) -> list[Release]:
+    """Build a predicted weekly release list for the configured watchlist."""
+    if not isinstance(target_week, date):
+        raise ValueError("target_week must be a date")
+    if target_week.weekday() != 0:
+        raise ValueError(f"target week {target_week.isoformat()} is not a Monday")
+    source_week = target_week - timedelta(days=7)
+    enabled_languages, language_patterns = load_language_config(languages_path)
+    releases = parse_calendar(fetch_calendar(source_week), enabled_languages, language_patterns)
+    selected = releases if include_all else filter_releases(releases, load_watching(watching_path))
+    return forecast_releases(selected, source_week, target_week)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Scrape Crunchyroll schedules without a browser")
     parser.add_argument(
@@ -660,14 +678,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         target_week = parse_monday(args.date) if args.date else current_week_start()
+        forecast = weekly_forecast(target_week, args.watching, args.languages, args.all)
         source_week = target_week - timedelta(days=7)
-        enabled_languages, language_patterns = load_language_config(args.languages)
-        releases = parse_calendar(fetch_calendar(source_week), enabled_languages, language_patterns)
-        selected = releases if args.all else filter_releases(releases, load_watching(args.watching))
-        forecast = forecast_releases(selected, source_week, target_week)
         if args.format == "ics":
             sys.stdout.write(make_ics(forecast, calendar_name="Crunchyroll Weekly Forecast"))
         else:
+            enabled_languages, _ = load_language_config(args.languages)
             json.dump(
                 {
                     "contract_version": 1,

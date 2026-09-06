@@ -1,0 +1,19 @@
+{{- if .Values.smtp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crunchy-calendar.smtpServiceName" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smtp
+spec:
+  type: {{ .Values.smtp.service.type }}
+  selector:
+    {{- include "crunchy-calendar.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: smtp
+  ports:
+    - name: submission
+      port: {{ .Values.smtp.service.port }}
+      targetPort: submission
+      protocol: TCP
+{{- end }}

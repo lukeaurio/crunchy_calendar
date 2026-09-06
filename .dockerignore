@@ -1,0 +1,7 @@
+.git
+__pycache__/
+*.py[cod]
+data/discovery.json
+data/snapshots/
+schedule.ics
+tests/

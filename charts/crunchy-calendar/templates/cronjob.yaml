@@ -1,0 +1,83 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "crunchy-calendar.fullname" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: batch
+spec:
+  schedule: {{ .Values.batch.schedule | quote }}
+  timeZone: {{ .Values.batch.timeZone | quote }}
+  concurrencyPolicy: {{ .Values.batch.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.batch.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.batch.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.batch.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.batch.backoffLimit }}
+      ttlSecondsAfterFinished: {{ .Values.batch.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            {{- include "crunchy-calendar.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: batch
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          {{- with .Values.batch.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.batch.podSecurityContext | nindent 12 }}
+          containers:
+            - name: weekly-email
+              image: {{ include "crunchy-calendar.image" (dict "image" .Values.batch.image) | quote }}
+              imagePullPolicy: {{ .Values.batch.image.pullPolicy }}
+              {{- with .Values.batch.args }}
+              args:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "crunchy-calendar.batchConfigName" . }}
+              {{- if .Values.batch.smtp.auth.existingSecret }}
+              env:
+                - name: CRUNCHY_CALENDAR_SMTP_PASSWORD_FILE
+                  value: /run/secrets/smtp/{{ .Values.batch.smtp.auth.passwordKey }}
+              {{- end }}
+              resources:
+                {{- toYaml .Values.batch.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.batch.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                {{- if .Values.batch.smtp.auth.existingSecret }}
+                - name: smtp-password
+                  mountPath: /run/secrets/smtp
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 8Mi
+            {{- if .Values.batch.smtp.auth.existingSecret }}
+            - name: smtp-password
+              secret:
+                secretName: {{ .Values.batch.smtp.auth.existingSecret }}
+                defaultMode: 288
+            {{- end }}
+          {{- with .Values.batch.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.batch.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.batch.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

@@ -14,8 +14,8 @@ Both files point to their schemas in `contracts/`. The Python CLI validates the 
 | Data | Contract | Storage |
 | --- | --- | --- |
 | Weekly forecast | `contracts/forecast.schema.json` | CLI stdout or `data/snapshots/YYYY-MM-DD.json` |
-| Seasonal report | `contracts/seasonal-discovery.schema.json` | CLI stdout or n8n execution output |
-| Discovery ledger | `contracts/discovery-state.schema.json` | `data/discovery.json` locally; `$CRUNCHY_CALENDAR_STATE_DIR/discovery.json` in n8n |
+| Seasonal report | `contracts/seasonal-discovery.schema.json` | CLI stdout |
+| Discovery ledger | `contracts/discovery-state.schema.json` | `data/discovery.json` or an explicitly mounted state directory |
 
 All contracts use `contract_version: 1`. Consumers must reject versions they do not support. Dates are ISO 8601 strings; `week_start` and `source_week_start` are Mondays in `YYYY-MM-DD` form. A forecast release is always seven days after its `source_starts_at` value.
 

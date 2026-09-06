@@ -1,8 +1,10 @@
 import json
+import io
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from crunchy_calendar.core import (
     SeasonalShow,
@@ -16,6 +18,7 @@ from crunchy_calendar.core import (
     load_language_config,
     load_watching,
     make_ics,
+    main,
     parse_calendar,
     parse_monday,
     parse_season_payload,
@@ -118,6 +121,16 @@ class CoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "immediately follow"):
             forecast_releases(selected, date(2026, 8, 24), date(2026, 9, 7))
+
+    def test_json_cli_keeps_forecast_metadata_after_helper_refactor(self):
+        with patch("crunchy_calendar.core.fetch_calendar", return_value=CALENDAR_HTML):
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                result = main(["--date", "2026-08-31"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["week_start"], "2026-08-31")
+        self.assertEqual(payload["source_week_start"], "2026-08-24")
+        self.assertEqual(payload["languages"], ["english", "japanese"])
 
     def test_editable_files_are_strictly_validated(self):
         with tempfile.TemporaryDirectory() as directory:

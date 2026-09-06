@@ -1,0 +1,102 @@
+# Required at install time. Use an immutable tag or image digest.
+nameOverride: ""
+fullnameOverride: ""
+
+batch:
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  schedule: "0 6 * * 1"
+  timeZone: America/New_York
+  startingDeadlineSeconds: 3600
+  concurrencyPolicy: Forbid
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  args: []
+  mail:
+    from: ""
+    to: ""
+  smtp:
+    # Empty uses this release's internal Postfix Service.
+    host: ""
+    # 0 uses the generated SMTP Service port; provide 1-65535 for an external host.
+    port: 0
+    # plain is safe only for the generated ClusterIP Service. Use TLS for an external host.
+    security: plain
+    timeoutSeconds: 30
+    auth:
+      username: ""
+      existingSecret: ""
+      passwordKey: smtp-password
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+smtp:
+  enabled: true
+  image:
+    repository: ghcr.io/bokysan/postfix
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 587
+  allowedSenderDomains: ""
+  hostname: ""
+  logFormat: json
+  postfix:
+    # Leave empty to use the image's private-network default. Set this to your Pod CIDR to narrow it.
+    myNetworks: ""
+    upstreamTlsSecurityLevel: encrypt
+  relay:
+    # Empty means direct-to-MX delivery. Prefer an authenticated upstream relay in production.
+    host: ""
+    username: ""
+    existingSecret: ""
+    passwordKey: relay-password
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  networkPolicy:
+    enabled: true

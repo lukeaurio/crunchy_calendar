@@ -1,0 +1,7 @@
+Crunchy Calendar is installed.
+
+The weekly job is {{ include "crunchy-calendar.fullname" . }} and its internal SMTP endpoint is {{ include "crunchy-calendar.smtpServiceName" . }}:{{ .Values.smtp.service.port }}.
+
+Test the job without waiting for its schedule:
+  kubectl create job --from=cronjob/{{ include "crunchy-calendar.fullname" . }} {{ include "crunchy-calendar.fullname" . }}-manual
+  kubectl logs job/{{ include "crunchy-calendar.fullname" . }}-manual

@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule the weekly Crunchyroll ICS forecast
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00
+Persistent=true
+Unit=crunchy-calendar.service
+
+[Install]
+WantedBy=timers.target

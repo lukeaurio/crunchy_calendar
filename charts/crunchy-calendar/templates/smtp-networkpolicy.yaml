@@ -1,0 +1,25 @@
+{{- if and .Values.smtp.enabled .Values.smtp.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "crunchy-calendar.smtpServiceName" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smtp
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "crunchy-calendar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: smtp
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "crunchy-calendar.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: batch
+      ports:
+        - protocol: TCP
+          port: submission
+{{- end }}

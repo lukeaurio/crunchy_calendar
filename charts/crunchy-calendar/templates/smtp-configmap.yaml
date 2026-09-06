@@ -1,0 +1,23 @@
+{{- if .Values.smtp.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "crunchy-calendar.smtpConfigName" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smtp
+data:
+  ALLOWED_SENDER_DOMAINS: {{ .Values.smtp.allowedSenderDomains | quote }}
+  LOG_FORMAT: {{ .Values.smtp.logFormat | quote }}
+  POSTFIX_myhostname: {{ default (printf "%s.%s.svc" (include "crunchy-calendar.smtpServiceName" .) .Release.Namespace) .Values.smtp.hostname | quote }}
+  POSTFIX_smtp_tls_security_level: {{ .Values.smtp.postfix.upstreamTlsSecurityLevel | quote }}
+  {{- with .Values.smtp.postfix.myNetworks }}
+  POSTFIX_mynetworks: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.smtp.relay.host }}
+  RELAYHOST: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.smtp.relay.username }}
+  RELAYHOST_USERNAME: {{ . | quote }}
+  {{- end }}
+{{- end }}

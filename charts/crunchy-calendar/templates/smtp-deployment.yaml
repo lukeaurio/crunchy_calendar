@@ -1,0 +1,83 @@
+{{- if .Values.smtp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crunchy-calendar.smtpServiceName" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smtp
+spec:
+  replicas: {{ .Values.smtp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "crunchy-calendar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: smtp
+  template:
+    metadata:
+      labels:
+        {{- include "crunchy-calendar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: smtp
+    spec:
+      securityContext:
+        {{- toYaml .Values.smtp.podSecurityContext | nindent 8 }}
+      containers:
+        - name: postfix
+          image: {{ include "crunchy-calendar.image" (dict "image" .Values.smtp.image) | quote }}
+          imagePullPolicy: {{ .Values.smtp.image.pullPolicy }}
+          ports:
+            - name: submission
+              containerPort: 587
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "crunchy-calendar.smtpConfigName" . }}
+          {{- if .Values.smtp.relay.existingSecret }}
+          env:
+            - name: RELAYHOST_PASSWORD_FILE
+              value: /run/secrets/relay/{{ .Values.smtp.relay.passwordKey }}
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: submission
+          readinessProbe:
+            tcpSocket:
+              port: submission
+          resources:
+            {{- toYaml .Values.smtp.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.smtp.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: postfix-queue
+              mountPath: /var/spool/postfix
+            {{- if .Values.smtp.relay.existingSecret }}
+            - name: relay-password
+              mountPath: /run/secrets/relay
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: postfix-queue
+          {{- if .Values.smtp.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-queue" (include "crunchy-calendar.smtpServiceName" .)) .Values.smtp.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.smtp.relay.existingSecret }}
+        - name: relay-password
+          secret:
+            secretName: {{ .Values.smtp.relay.existingSecret }}
+            defaultMode: 288
+        {{- end }}
+      {{- with .Values.smtp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.smtp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.smtp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

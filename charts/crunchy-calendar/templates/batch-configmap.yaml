@@ -1,0 +1,17 @@
+{{- include "crunchy-calendar.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "crunchy-calendar.batchConfigName" . }}
+  labels:
+    {{- include "crunchy-calendar.labels" . | nindent 4 }}
+data:
+  CRUNCHY_CALENDAR_MAIL_FROM: {{ .Values.batch.mail.from | quote }}
+  CRUNCHY_CALENDAR_MAIL_TO: {{ .Values.batch.mail.to | quote }}
+  CRUNCHY_CALENDAR_SMTP_HOST: {{ include "crunchy-calendar.batchSmtpHost" . | quote }}
+  CRUNCHY_CALENDAR_SMTP_PORT: {{ include "crunchy-calendar.batchSmtpPort" . | quote }}
+  CRUNCHY_CALENDAR_SMTP_SECURITY: {{ .Values.batch.smtp.security | quote }}
+  CRUNCHY_CALENDAR_SMTP_TIMEOUT_SECONDS: {{ .Values.batch.smtp.timeoutSeconds | quote }}
+  {{- with .Values.batch.smtp.auth.username }}
+  CRUNCHY_CALENDAR_SMTP_USERNAME: {{ . | quote }}
+  {{- end }}

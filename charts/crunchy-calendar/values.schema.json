@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["batch", "smtp"],
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "batch": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {"type": "string"},
+            "tag": {"type": "string"},
+            "digest": {"type": "string"},
+            "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+          }
+        },
+        "imagePullSecrets": {"type": "array"},
+        "schedule": {"type": "string", "minLength": 1},
+        "timeZone": {"type": "string", "minLength": 1},
+        "startingDeadlineSeconds": {"type": "integer", "minimum": 0},
+        "backoffLimit": {"type": "integer", "minimum": 0},
+        "ttlSecondsAfterFinished": {"type": "integer", "minimum": 0},
+        "successfulJobsHistoryLimit": {"type": "integer", "minimum": 0},
+        "failedJobsHistoryLimit": {"type": "integer", "minimum": 0},
+        "concurrencyPolicy": {"enum": ["Allow", "Forbid", "Replace"]},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "mail": {
+          "type": "object",
+          "properties": {
+            "from": {"type": "string"},
+            "to": {"type": "string"}
+          }
+        },
+        "smtp": {
+          "type": "object",
+          "properties": {
+            "host": {"type": "string"},
+            "port": {"type": "integer", "minimum": 0, "maximum": 65535},
+            "security": {"enum": ["plain", "starttls", "ssl"]},
+            "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300},
+            "auth": {
+              "type": "object",
+              "properties": {
+                "username": {"type": "string"},
+                "existingSecret": {"type": "string"},
+                "passwordKey": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "smtp": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {"type": "string"},
+            "tag": {"type": "string"},
+            "digest": {"type": "string"},
+            "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+          }
+        },
+        "replicas": {"type": "integer", "minimum": 1},
+        "allowedSenderDomains": {"type": "string"},
+        "hostname": {"type": "string"},
+        "logFormat": {"enum": ["json", "plain"]},
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": {"enum": ["ClusterIP"]},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "existingClaim": {"type": "string"},
+            "storageClass": {"type": "string"},
+            "accessModes": {"type": "array", "items": {"type": "string"}},
+            "size": {"type": "string", "minLength": 1}
+          }
+        },
+        "postfix": {
+          "type": "object",
+          "properties": {
+            "myNetworks": {"type": "string"},
+            "upstreamTlsSecurityLevel": {"type": "string", "minLength": 1}
+          }
+        },
+        "relay": {
+          "type": "object",
+          "properties": {
+            "host": {"type": "string"},
+            "username": {"type": "string"},
+            "existingSecret": {"type": "string"},
+            "passwordKey": {"type": "string"}
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}

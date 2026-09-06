@@ -3,18 +3,28 @@
 
 Crunchy Calendar predicts this week's Crunchyroll releases from the previous week's calendar. It filters by watchlist and audio language, then produces calendar-ready JSON or ICS.
 
-The n8n deployment pulls this repository from GitHub for each execution and runs the existing standard-library Python CLI through an Execute Command node. n8n schedules the command and parses stdout; the Python package owns scraping, language matching, watchlist filtering, prediction, ICS generation, and discovery.
+The scheduled deployment is a one-shot container: it generates the ICS, attaches it to an SMTP email, and exits. There is no n8n workflow, queue, database, scheduler daemon, or third-party SDK in the runtime path.
 
-## n8n
+## Scheduled container delivery
 
-Use the GitHub-backed deployment in [`n8n/github/`](n8n/github/):
+Build the image once, then let the host scheduler start it every Monday:
 
-- [`n8n/github/weekly-forecast.json`](n8n/github/weekly-forecast.json) runs at 6:00 AM each Monday and returns the CLI's forecast JSON.
-- [`n8n/github/season-discovery.json`](n8n/github/season-discovery.json) runs monthly and writes the CLI's seen-title ledger to a configured persistent state directory.
+```sh
+docker build -t crunchy-calendar:local .
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  --env-file /etc/crunchy-calendar/runtime.env \
+  --mount type=bind,src=/etc/crunchy-calendar/smtp-password,dst=/run/secrets/smtp-password,readonly \
+  crunchy-calendar:local --dry-run
+```
 
-The earlier node-native exports remain in `n8n/` for reference, but they are superseded by the Python-backed workflows.
+`--dry-run` writes the ICS to stdout and never connects to SMTP. Without it, the
+container sends the calendar to the configured recipients.
 
-Read [the GitHub runtime instructions](n8n/github/README.md) and [the n8n deployment notes](docs/n8n-implementation-plan.md) before publishing either workflow. No Docker image or Compose stack is part of this project.
+For a Docker host, use the included systemd service and timer. For a cluster,
+use the included Helm chart, which adds a private Postfix relay alongside the
+CronJob. Both invoke the same image and command.
+Read [the container batch deployment guide](docs/container-batch-deployment.md)
+before scheduling mail.
 
 ## Local Python CLI
 
@@ -38,14 +48,15 @@ nix develop path:.
 
 ## Configuration and output
 
-CLI configuration lives in [`data/watching.json`](data/watching.json) and [`data/languages.json`](data/languages.json). Each n8n run reads those files from its temporary GitHub checkout without translating them into workflow code.
+CLI configuration lives in [`data/watching.json`](data/watching.json) and [`data/languages.json`](data/languages.json). The container image copies those files at build time, so a configuration change requires a rebuild and rollout.
 
 Generated reports include `contract_version: 1`. Schemas and storage rules are documented in [`data/README.md`](data/README.md). Generated discovery state, snapshots, and ICS files are ignored by source control.
 
 ## Tests
 
 ```sh
-python3 -m unittest tests.test_core tests.test_workflows -v
+python3 -m unittest tests.test_core -v
+python3 -m unittest tests.test_batch -v
 python3 -m unittest tests.test_live -v
 python3 -m unittest discover -v
 ```

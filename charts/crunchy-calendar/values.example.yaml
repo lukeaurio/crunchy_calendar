@@ -1,0 +1,25 @@
+batch:
+  image:
+    repository: ghcr.io/lukeaurio/crunchy-calendar
+    # Replace with the image version built from this repository.
+    tag: REPLACE_WITH_CALENDAR_IMAGE_TAG
+  mail:
+    from: calendar-bot@example.com
+    to: you@example.com
+
+smtp:
+  image:
+    repository: ghcr.io/bokysan/postfix
+    # Pin and review the Postfix relay version before installation.
+    tag: 6.0.0
+  allowedSenderDomains: example.com
+  relay:
+    # Use a provider or mail host that accepts authenticated SMTP submission.
+    host: "[smtp.example.com]:587"
+    username: calendar-bot@example.com
+    # Created outside Helm; its relay-password key is mounted read-only.
+    existingSecret: crunchy-calendar-relay
+  persistence:
+    # Retains the Postfix queue during a Pod restart when the upstream is unavailable.
+    enabled: true
+    size: 1Gi
