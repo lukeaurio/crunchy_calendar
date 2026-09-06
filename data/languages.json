@@ -1,4 +1,5 @@
 {
+  "$schema": "./contracts/languages.schema.json",
   "enabled": ["japanese", "english"],
   "patterns": {
     "japanese": ["Japanese", "日本語"],

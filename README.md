@@ -1,68 +1,53 @@
+
 # Crunchy Calendar
 
-Crunchy Calendar turns Crunchyroll release data into filtered JSON or ICS. It uses Python's standard library and makes direct HTTPS requests. There is no Playwright, Chromium, browser profile, account login, or third-party tracking service.
+Crunchy Calendar predicts this week's Crunchyroll releases from the previous week's calendar. It filters by watchlist and audio language, then produces calendar-ready JSON or ICS.
 
-The weekly schedule comes from the server-rendered [release calendar](https://www.crunchyroll.com/simulcastcalendar). Seasonal discovery uses the anonymous JSON request made by Crunchyroll's own [simulcast page](https://www.crunchyroll.com/simulcasts/seasons/summer-2026). The seasonal HTML currently returns an error shell, so parsing that shell cannot produce the catalog.
+The n8n deployment pulls this repository from GitHub for each execution and runs the existing standard-library Python CLI through an Execute Command node. n8n schedules the command and parses stdout; the Python package owns scraping, language matching, watchlist filtering, prediction, ICS generation, and discovery.
 
-## Run it
+## n8n
+
+Use the GitHub-backed deployment in [`n8n/github/`](n8n/github/):
+
+- [`n8n/github/weekly-forecast.json`](n8n/github/weekly-forecast.json) runs at 6:00 AM each Monday and returns the CLI's forecast JSON.
+- [`n8n/github/season-discovery.json`](n8n/github/season-discovery.json) runs monthly and writes the CLI's seen-title ledger to a configured persistent state directory.
+
+The earlier node-native exports remain in `n8n/` for reference, but they are superseded by the Python-backed workflows.
+
+Read [the GitHub runtime instructions](n8n/github/README.md) and [the n8n deployment notes](docs/n8n-implementation-plan.md) before publishing either workflow. No Docker image or Compose stack is part of this project.
+
+## Local Python CLI
+
+The Python version is useful for local testing and ICS generation. It only uses the standard library and works with Python 3.11 or newer.
 
 ```sh
-nix develop path:.
-
-# Predict this week's watched releases from last week's schedule
-python -m crunchy_calendar
-
-# Predict a specific week, including every show in enabled languages
-python -m crunchy_calendar --date 2026-08-31 --all
-
-# ICS output
-python -m crunchy_calendar --date 2026-08-31 --format ics > schedule.ics
-
-# Record new and previously seen shows for a season
-python -m crunchy_calendar --season summer-2026 --discover \
+python3 -m crunchy_calendar
+python3 -m crunchy_calendar --date 2026-08-31 --all
+python3 -m crunchy_calendar --date 2026-08-31 --format ics > schedule.ics
+python3 -m crunchy_calendar --season summer-2026 --discover \
   --discovery-state data/discovery.json
 ```
 
-`--date` is the Monday of the week you want notifications for. The CLI fetches the calendar for the preceding Monday-to-Sunday week, keeps watched shows in enabled languages, shifts each airtime forward seven days, and increments a known episode number by one. Omitting `--date` predicts the current week.
+`--date` is the Monday of the week being predicted. Without it, the CLI uses the current week. Known episode numbers advance by one. Finished shows can leave one stale prediction.
 
-The output is an expectation, not a confirmed schedule. A finished series can leave one stale event. JSON includes `source_week_start`, `source_starts_at`, `source_episode`, and `predicted: true`. ICS events use `STATUS:TENTATIVE` and include the source airtime in their descriptions. The Crunchyroll URL points to the series found in the source release.
+The Nix flake remains available as an optional development shell:
 
-Omitting `--season` in discovery mode selects the current winter, spring, summer, or fall slug.
-
-## Watching and languages
-
-Edit `data/watching.json` by hand:
-
-```json
-{
-  "shows": [
-    "The Apothecary Diaries",
-    {"title": "One Piece", "aliases": ["ONE PIECE"]}
-  ]
-}
+```sh
+nix develop path:.
 ```
 
-Language rules live in `data/languages.json`. Unsuffixed calendar entries are the Japanese/original track. A title ending in `(English)` is the English track. Add another language by adding its suffix patterns and its key to `enabled`; remove a language by deleting its key from `enabled`.
+## Configuration and output
 
-Discovery writes only to its observation ledger. A new seasonal title appears under `new_shows` on the first run and `seen_shows` later. It never edits the watchlist.
+CLI configuration lives in [`data/watching.json`](data/watching.json) and [`data/languages.json`](data/languages.json). Each n8n run reads those files from its temporary GitHub checkout without translating them into workflow code.
+
+Generated reports include `contract_version: 1`. Schemas and storage rules are documented in [`data/README.md`](data/README.md). Generated discovery state, snapshots, and ICS files are ignored by source control.
 
 ## Tests
 
 ```sh
-# Parser, validation, storage, filtering, and ICS tests
-python -m unittest tests.test_core -v
-
-# Real HTTPS requests to both Crunchyroll sources
-python -m unittest tests.test_live -v
-
-# Everything
-python -m unittest discover -v
+python3 -m unittest tests.test_core tests.test_workflows -v
+python3 -m unittest tests.test_live -v
+python3 -m unittest discover -v
 ```
 
-The live tests require network access. They fail if Crunchyroll blocks the requests, changes the response shape, or stops returning real releases and series.
-
-## n8n
-
-Self-hosted n8n can run the CLI with an Execute Command node. Import `n8n/weekly-forecast.json` for the Monday forecast or `n8n/season-discovery.json` for discovery. Check their `/opt/crunchyCalendar` and `/var/lib/crunchy-calendar` paths before enabling either workflow. Both imports validate generated values and command output.
-
-See [docs/n8n-implementation-plan.md](docs/n8n-implementation-plan.md) for the weekly calendar, discovery ledger, and rolling-average plan.
+The live tests request the real Crunchyroll weekly calendar and anonymous seasonal website feed. They fail on blocked requests, empty responses, or incompatible response changes.

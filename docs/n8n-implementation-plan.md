@@ -1,129 +1,59 @@
-# n8n Implementation Plan
+# n8n GitHub-backed Python deployment
 
-## Goal
+The n8n layer schedules the existing Python CLI. It does not contain another Crunchyroll scraper or forecasting implementation.
 
-Run one weekly Crunchyroll schedule job and one separate seasonal discovery job. Python owns fetching, parsing, language classification, title matching, and ICS generation. n8n owns scheduling, durable storage, notifications, and calendar delivery.
+## Runtime contract
 
-The Python process has one runtime dependency: Python itself. It sends direct HTTPS requests with the standard library. Seasonal discovery obtains an anonymous short-lived token and requests the same seasonal JSON used by Crunchyroll's simulcast page. No browser state or Crunchyroll account is involved.
+Each workflow uses n8n's built-in Git node to clone the repository from GitHub into `/tmp/crunchy-calendar-<execution-id>`. It then runs these repository-owned inputs in place:
 
-## Persistent data
+- `crunchy_calendar/`
+- `data/watching.json`
+- `data/languages.json`
 
-Start with files mounted into the n8n worker:
+An exit trap removes the checkout after the CLI finishes. The per-execution path avoids collisions between manual and scheduled runs. Mutable discovery state lives outside the checkout at `$CRUNCHY_CALENDAR_STATE_DIR/discovery.json`; source code is never installed into the n8n instance.
 
-- `data/watching.json`: titles deliberately marked as currently watching.
-- `data/languages.json`: enabled language keys and recognized title suffixes.
-- `/var/lib/crunchy-calendar/discovery.json`: first-seen seasonal titles.
-- `/var/lib/crunchy-calendar/snapshots/YYYY-MM-DD.json`: successful weekly results.
+The existing self-hosted n8n execution host must provide `git` and `python3`. Execute Command is unavailable on n8n Cloud and blocked by default in n8n 2.x. Enable it through the existing deployment's `NODES_EXCLUDE` configuration; this repository does not define or replace the n8n deployment.
 
-The discovery ledger and watchlist need separate write permissions. Discovery must never promote a title into the watchlist.
+In queue mode, `git`, `python3`, network access to GitHub and Crunchyroll, and the discovery state directory belong on each worker that can execute these workflows.
 
-If multiple workers need shared state, move the discovery ledger to DynamoDB. Use normalized `show_key` as the partition key and store `title`, `url`, `season`, `first_seen`, and `last_seen`. A conditional put with `attribute_not_exists(show_key)` identifies a first sighting.
+## Weekly workflow
 
-## Weekly schedule workflow
-
-```text
-Schedule Trigger
-  -> calculate previous Monday
-  -> Execute Command
-  -> validate JSON
-  -> store immutable snapshot
-  -> split releases
-  -> upsert calendar events
-  -> alert on failure
-```
-
-1. Run after the target week has finished. Set the workflow timezone explicitly.
-2. Calculate the previous Monday as `YYYY-MM-DD`. Reject malformed values in the Code node; the CLI validates Monday alignment again.
-3. Run:
-
-   ```sh
-   nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar \
-     --date '{{$json.week_start}}' \
-     --watching /opt/crunchyCalendar/data/watching.json \
-     --languages /opt/crunchyCalendar/data/languages.json \
-     --format json
-   ```
-
-4. Parse `stdout` as JSON. Require `week_start`, `languages`, and `releases`. Every release must contain non-empty `title`, `language`, `starts_at`, and `url` values.
-5. Save the complete response under its week key. Refuse to overwrite an existing snapshot unless the run is explicitly marked as a repair.
-6. Split `releases` into n8n items. Upsert events with a key derived from title, episode, start time, and language. Rerunning the workflow should update the same event.
-7. Route a non-zero exit, malformed JSON, or empty source result to an alert. Include the target week and n8n execution URL.
-
-ICS can be the first destination. Google Calendar and Home Assistant can consume individual release items later. Home Assistant should remain a destination rather than the workflow database.
-
-## Seasonal discovery workflow
-
-Import [`n8n/season-discovery.json`](../n8n/season-discovery.json). It is inactive after import.
+[`n8n/github/weekly-forecast.json`](../n8n/github/weekly-forecast.json) contains four nodes:
 
 ```text
-Monthly Schedule Trigger
-  -> resolve and validate season
-  -> Execute Command
-  -> validate discovery JSON
-  -> notify about new_shows
+Monday Morning
+  -> Clone Crunchy Calendar
+  -> Run Python Forecast
+  -> Parse Forecast JSON
 ```
 
-The command is:
+The Git node clones the repository's default branch. The command invokes `python3 -m crunchy_calendar` from that checkout. It does not pass `--date`, so the CLI selects the current week and uses the previous week as its source. The parser only converts stdout into an n8n item and checks `contract_version`, `predicted`, and `releases`.
 
-```sh
-nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar \
-  --season '{{$json.season}}' \
-  --discover \
-  --discovery-state /var/lib/crunchy-calendar/discovery.json
-```
+Connect the parsed report to a Split Out node on `releases` when a destination requires one item per event. Use `starts_at` for the calendar start time. Keep predicted events tentative because a completed show can produce one final stale prediction.
 
-Accept only `spring-YYYY`, `summer-YYYY`, `fall-YYYY`, or `winter-YYYY`. Keep filesystem paths fixed in the node configuration; do not build paths from incoming workflow data.
+For a direct ICS result, change the command to `--format ics` and remove the JSON parser. The Execute Command node's `stdout` is then the complete calendar.
 
-The response contains:
+## Seasonal discovery
 
-- `season`: validated season slug.
-- `show_count`: number of real Crunchyroll series returned.
-- `new_shows`: titles absent from the ledger before this run.
-- `seen_shows`: titles already present.
+[`n8n/github/season-discovery.json`](../n8n/github/season-discovery.json) clones the same repository and invokes the package with `--discover`. The CLI derives the current season, fetches the catalog, validates it, and updates the persistent ledger. The n8n parser checks the report contract and returns `new_shows` and `seen_shows` unchanged.
 
-Require `show_count > 0` and verify that it equals the lengths of both arrays combined. A candidate can trigger a notification or review task. Adding it to `watching.json` remains a separate approval.
+To pin a season for a one-time run, add a literal validated value such as `--season summer-2026` to the command. Do not interpolate untrusted workflow input into a shell command.
 
-## Language handling
+## Why this path
 
-The default configuration keeps Japanese/original and English releases:
+n8n's native Python Code node cannot access the filesystem or make HTTP requests. Self-hosted third-party Python imports also require a customized task runner. n8n's source-control environments feature syncs n8n workflows rather than application source. Git Clone followed by Execute Command is therefore the smallest path that runs this repository unchanged.
 
-```json
-{
-  "enabled": ["japanese", "english"],
-  "patterns": {
-    "japanese": ["Japanese", "日本語"],
-    "english": ["English"]
-  }
-}
-```
+## Import and verification
 
-Crunchyroll's weekly calendar leaves the original Japanese entry unsuffixed. Localized audio tracks carry a suffix. The rolling language scan can sample 20 dates across 90 days with `discover()` and record every observed suffix before a new language rule is enabled.
+Publish this repository to GitHub, then use n8n's editor **Import from URL** action with the raw URL of either export. Replace the placeholder clone URL and select a Git credential if the repository is private. The MCP workflow writer on this server rejects Execute Command as an unrecognized workflow node even though its node validator accepts the configuration, so editor URL import is the supported handoff here.
 
-## Rolling-average follow-up
+After import:
 
-Calculate viewing load from the four latest successful weekly snapshots:
+1. Keep both workflows inactive.
+2. Run `Clone Crunchy Calendar` and confirm `success: true`.
+3. Run `Run Python Forecast` manually and confirm exit code `0` with a versioned JSON object in `stdout`.
+4. Confirm `Parse Forecast JSON` returns the forecast contract.
+5. Run discovery twice and confirm the second report moves previously returned titles into `seen_shows`.
+6. Publish only after the timezone and output destination are correct.
 
-```text
-snapshots -> releases per watched title -> four-week average -> watch blocks
-```
-
-Release events and personal watch blocks need different event keys. A failed scrape must not alter existing watch blocks. Only advance the rolling window after a weekly snapshot passes validation.
-
-## Deployment checks
-
-- Use self-hosted n8n; Execute Command is unavailable on n8n Cloud. Review the [Execute Command node documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.executecommand/) before enabling it.
-- Mount the repository read-only when possible. Grant the n8n user write access only to the ledger, snapshot, and output directories.
-- Store calendar, AWS, and notification credentials in n8n credentials.
-- Set an execution timeout longer than the CLI's 30-second per-request timeout.
-- Prevent overlapping discovery jobs from writing the same local ledger. DynamoDB conditional writes remove this single-worker limitation.
-- Preserve stderr and the exit code in failed executions.
-
-## Delivery order
-
-1. Import and run seasonal discovery once. Confirm real titles and series URLs are stored.
-2. Build the weekly JSON workflow and preserve one snapshot.
-3. Add idempotent calendar writes and failure alerts.
-4. Collect four weekly snapshots, then add watch-block averaging.
-5. Move the ledger to DynamoDB if more than one n8n worker needs it.
-
-This phase is done when rerunning either workflow produces no duplicate calendar events, discovery reports new versus seen titles without editing the watchlist, and both live scraper tests pass from the n8n host.
+A nonzero CLI exit fails Execute Command and preserves the CLI error in `stderr`. The parser also fails on empty output, malformed JSON, or an unsupported contract version.

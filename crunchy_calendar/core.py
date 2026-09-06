@@ -389,8 +389,12 @@ def load_watching(path: Path) -> list[str]:
             result.append(entry)
         elif isinstance(entry, dict) and isinstance(entry.get("title"), str):
             aliases = entry.get("aliases", [])
-            if not isinstance(aliases, list) or not all(isinstance(alias, str) for alias in aliases):
-                raise ValueError("watchlist aliases must be a list of strings")
+            if not isinstance(aliases, list) or not all(
+                isinstance(alias, str) and alias.strip() for alias in aliases
+            ):
+                raise ValueError("watchlist aliases must be a list of non-empty strings")
+            if len(aliases) != len(set(aliases)):
+                raise ValueError("watchlist aliases must not contain duplicates")
             result.extend([entry["title"], *aliases])
         else:
             raise ValueError("each watchlist entry must be a title string or object with a title")
@@ -417,6 +421,10 @@ def load_language_config(path: Path) -> tuple[set[str], dict[str, list[str]]]:
         raise ValueError("language config 'patterns' must map names to non-empty string lists")
     if any(language not in patterns for language in enabled):
         raise ValueError("every enabled language must have at least one pattern")
+    if len(enabled) != len(set(enabled)):
+        raise ValueError("language config 'enabled' must not contain duplicates")
+    if any(len(values) != len(set(values)) for values in patterns.values()):
+        raise ValueError("language suffix patterns must not contain duplicates")
     return set(enabled), patterns
 
 
@@ -436,6 +444,9 @@ def _load_discovery_state(path: Path | None) -> dict[str, dict]:
     if path is None or not path.exists():
         return {}
     data = _read_json(path, "discovery state")
+    version = data.get("contract_version", 1) if isinstance(data, dict) else None
+    if version != 1:
+        raise ValueError(f"unsupported discovery state contract version: {version}")
     shows = data.get("shows") if isinstance(data, dict) else None
     if not isinstance(shows, dict):
         raise ValueError("discovery state must contain a 'shows' object")
@@ -448,7 +459,8 @@ def _save_discovery_state(path: Path | None, shows: dict[str, dict]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps({"shows": shows}, indent=2, ensure_ascii=False) + "\n",
+            json.dumps({"contract_version": 1, "shows": shows}, indent=2, ensure_ascii=False)
+            + "\n",
             encoding="utf-8",
         )
     except OSError as exc:
@@ -503,6 +515,7 @@ def discover(
         merged[key] = {field: value for field, value in item.items() if field != "seen_before"}
     _save_discovery_state(state_path, merged)
     return {
+        "contract_version": 1,
         "anchor": anchor.isoformat(),
         "days": days,
         "samples": samples,
@@ -538,6 +551,7 @@ def discover_season(
         merged[key] = {field: value for field, value in item.items() if field != "seen_before"}
     _save_discovery_state(state_path, merged)
     return {
+        "contract_version": 1,
         "season": season,
         "show_count": len(current),
         "new_shows": [item for item in current if not item["seen_before"]],
@@ -656,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             json.dump(
                 {
+                    "contract_version": 1,
                     "week_start": target_week.isoformat(),
                     "source_week_start": source_week.isoformat(),
                     "predicted": True,

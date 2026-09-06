@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crunchy-calendar.local/contracts/forecast.schema.json",
+  "title": "Crunchy Calendar weekly forecast",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "week_start",
+    "source_week_start",
+    "predicted",
+    "languages",
+    "releases"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "week_start": {"type": "string", "format": "date"},
+    "source_week_start": {"type": "string", "format": "date"},
+    "predicted": {"const": true},
+    "languages": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "releases": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/release"}
+    }
+  },
+  "$defs": {
+    "nullableEpisode": {
+      "anyOf": [
+        {"type": "integer", "minimum": 0},
+        {"type": "null"}
+      ]
+    },
+    "release": {
+      "type": "object",
+      "required": [
+        "title",
+        "language",
+        "episode",
+        "starts_at",
+        "url",
+        "predicted",
+        "source_starts_at",
+        "source_episode"
+      ],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "minLength": 1},
+        "episode": {"$ref": "#/$defs/nullableEpisode"},
+        "starts_at": {"type": "string", "format": "date-time"},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://www\\.crunchyroll\\.com/"},
+        "predicted": {"const": true},
+        "source_starts_at": {"type": "string", "format": "date-time"},
+        "source_episode": {"$ref": "#/$defs/nullableEpisode"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

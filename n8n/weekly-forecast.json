@@ -19,60 +19,136 @@
       "name": "Monday Morning",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-520, 0]
+      "position": [-720, 0]
     },
     {
       "parameters": {
-        "jsCode": "const weekStart = $now.startOf('week').toISODate();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(weekStart)) {\n  throw new Error(`Could not resolve week start: ${weekStart}`);\n}\nconst parsed = new Date(`${weekStart}T00:00:00Z`);\nif (Number.isNaN(parsed.getTime()) || parsed.getUTCDay() !== 1) {\n  throw new Error(`Resolved week start is not a Monday: ${weekStart}`);\n}\nreturn [{ json: { week_start: weekStart } }];"
+        "jsCode": "const target = $now.startOf('week');\nconst targetWeek = target.toISODate();\nconst sourceWeek = target.minus({ days: 7 }).toISODate();\nconst watching = [\n  'mushoku tensei jobless reincarnation',\n  'chainsaw man',\n  'jujutsu kaisen',\n  'TSUKIMICHI -Moonlit Fantasy-'\n];\nconst languages = {\n  enabled: ['japanese', 'english'],\n  patterns: { japanese: ['Japanese', '日本語'], english: ['English'] }\n};\nconst isMonday = (value) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).getUTCDay() === 1;\nif (!isMonday(targetWeek) || !isMonday(sourceWeek)) {\n  throw new Error(`Invalid weekly range: ${sourceWeek} to ${targetWeek}`);\n}\nif (!Array.isArray(watching) || watching.some((title) => typeof title !== 'string' || !title.trim())) {\n  throw new Error('Watching must be an array of non-empty title strings');\n}\nif (!Array.isArray(languages.enabled) || !languages.enabled.length || languages.enabled.some((name) => !Array.isArray(languages.patterns[name]) || !languages.patterns[name].length)) {\n  throw new Error('Every enabled language needs at least one suffix pattern');\n}\nreturn [{ json: {\n  target_week_start: targetWeek,\n  source_week_start: sourceWeek,\n  calendar_url: `https://www.crunchyroll.com/simulcastcalendar?filter=premium&date=${sourceWeek}`,\n  watching,\n  languages\n} }];"
       },
       "id": "9680d055-0e60-4518-a1e3-a39dc5434587",
-      "name": "Resolve Target Monday",
+      "name": "Forecast Configuration",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-280, 0]
+      "position": [-500, 0]
     },
     {
       "parameters": {
-        "command": "=nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar --date {{ $json.week_start }} --watching /opt/crunchyCalendar/data/watching.json --languages /opt/crunchyCalendar/data/languages.json --format json"
+        "url": "={{ $json.calendar_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        }
       },
-      "id": "c7ec5a7e-2c94-48c6-b829-100823dc7f09",
-      "name": "Build Weekly Forecast",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [-40, 0]
+      "id": "e89b3ba8-284a-456b-b9d2-9ad6f18f1f36",
+      "name": "Fetch Previous Week",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-260, 0]
     },
     {
       "parameters": {
-        "jsCode": "if (typeof $json.stdout !== 'string' || $json.stdout.trim() === '') {\n  throw new Error('Forecast command returned no JSON');\n}\nlet payload;\ntry {\n  payload = JSON.parse($json.stdout);\n} catch (error) {\n  throw new Error(`Forecast command returned invalid JSON: ${error.message}`);\n}\nconst monday = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!monday.test(payload.week_start ?? '') || !monday.test(payload.source_week_start ?? '')) {\n  throw new Error('Forecast response has invalid week dates');\n}\nconst target = new Date(`${payload.week_start}T00:00:00Z`);\nconst source = new Date(`${payload.source_week_start}T00:00:00Z`);\nif (Number.isNaN(target.getTime()) || Number.isNaN(source.getTime()) || target - source !== 7 * 86400000) {\n  throw new Error('Forecast source must be exactly one week before its target');\n}\nif (payload.predicted !== true || !Array.isArray(payload.languages) || !Array.isArray(payload.releases)) {\n  throw new Error('Forecast response is missing prediction metadata or arrays');\n}\nfor (const release of payload.releases) {\n  if (!release || typeof release.title !== 'string' || release.title.trim() === '' || typeof release.language !== 'string' || release.language.trim() === '' || typeof release.starts_at !== 'string' || Number.isNaN(Date.parse(release.starts_at)) || typeof release.source_starts_at !== 'string' || Number.isNaN(Date.parse(release.source_starts_at)) || typeof release.url !== 'string' || !release.url.startsWith('https://www.crunchyroll.com/') || release.predicted !== true) {\n    throw new Error('Forecast response contains an invalid release');\n  }\n  if (Date.parse(release.starts_at) - Date.parse(release.source_starts_at) !== 7 * 86400000) {\n    throw new Error(`Forecast release is not seven days after its source: ${release.title}`);\n  }\n}\nreturn [{ json: payload }];"
+        "operation": "extractHtmlContent",
+        "sourceData": "json",
+        "dataPropertyName": "body",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "titles",
+              "cssSelector": "article.release > div h1.season-name cite[itemprop=\"name\"]",
+              "returnValue": "text",
+              "returnArray": true
+            },
+            {
+              "key": "source_starts_at",
+              "cssSelector": "article.release > time.available-time",
+              "returnValue": "attribute",
+              "attribute": "datetime",
+              "returnArray": true
+            },
+            {
+              "key": "urls",
+              "cssSelector": "article.release > div h1.season-name a.js-season-name-link",
+              "returnValue": "attribute",
+              "attribute": "href",
+              "returnArray": true
+            },
+            {
+              "key": "source_episodes",
+              "cssSelector": "article.release",
+              "returnValue": "attribute",
+              "attribute": "data-episode-num",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {
+          "trimValues": true,
+          "cleanUpText": true
+        }
+      },
+      "id": "1ddfa041-b174-44e6-9be4-24229ade3147",
+      "name": "Extract Releases",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [-20, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nconst config = $('Forecast Configuration').first().json;\nconst fields = ['titles', 'source_starts_at', 'urls', 'source_episodes'];\nfor (const field of fields) {\n  if (!Array.isArray(input[field])) throw new Error(`HTML extraction did not return ${field}`);\n}\nconst count = input.titles.length;\nif (count < 1) throw new Error('Crunchyroll returned no release cards');\nif (fields.some((field) => input[field].length !== count)) {\n  throw new Error(`Release fields do not align: ${fields.map((field) => `${field}=${input[field].length}`).join(', ')}`);\n}\nconst splitSuffix = (value) => {\n  const clean = String(value).replace(/\\s+/g, ' ').trim();\n  if (!clean.endsWith(')')) return { title: clean, suffix: null };\n  let depth = 0;\n  for (let i = clean.length - 1; i >= 0; i--) {\n    if (clean[i] === ')') depth++;\n    if (clean[i] === '(') {\n      depth--;\n      if (depth === 0 && i > 0 && /\\s/.test(clean[i - 1])) {\n        return { title: clean.slice(0, i).trim(), suffix: clean.slice(i + 1, -1) };\n      }\n    }\n  }\n  return { title: clean, suffix: null };\n};\nconst inferLanguage = (value) => {\n  const parsed = splitSuffix(value);\n  if (parsed.suffix === null) return { title: parsed.title, language: 'japanese' };\n  const folded = parsed.suffix.toLocaleLowerCase('en-US');\n  for (const [language, patterns] of Object.entries(config.languages.patterns)) {\n    if (patterns.some((pattern) => pattern.toLocaleLowerCase('en-US') === folded)) {\n      return { title: parsed.title, language };\n    }\n  }\n  return { title: String(value).replace(/\\s+/g, ' ').trim(), language: `other:${parsed.suffix}` };\n};\nconst normalizeTitle = (value) => inferLanguage(value).title\n  .replace(/\\s+Season\\s+\\d+\\b/gi, '')\n  .replace(/\\s+\\d+(?:st|nd|rd|th)\\s+Season\\b/gi, '')\n  .toLowerCase()\n  .replace(/[^a-z0-9]+/g, ' ')\n  .trim();\nconst watched = new Set(config.watching.map(normalizeTitle));\nconst enabled = new Set(config.languages.enabled);\nconst releases = [];\nconst seen = new Set();\nfor (let index = 0; index < count; index++) {\n  const parsed = inferLanguage(input.titles[index]);\n  if (!enabled.has(parsed.language) || !watched.has(normalizeTitle(parsed.title))) continue;\n  const sourceStart = new Date(input.source_starts_at[index]);\n  const sourceEpisodeText = String(input.source_episodes[index] ?? '').trim();\n  const sourceEpisode = /^\\d+$/.test(sourceEpisodeText) ? Number(sourceEpisodeText) : null;\n  const url = String(input.urls[index] ?? '').trim();\n  if (Number.isNaN(sourceStart.getTime())) throw new Error(`Invalid release time for ${parsed.title}`);\n  if (!url.startsWith('https://www.crunchyroll.com/')) throw new Error(`Invalid Crunchyroll URL for ${parsed.title}`);\n  const release = {\n    title: parsed.title,\n    language: parsed.language,\n    episode: sourceEpisode === null ? null : sourceEpisode + 1,\n    starts_at: new Date(sourceStart.getTime() + 7 * 86400000).toISOString(),\n    url,\n    predicted: true,\n    source_starts_at: sourceStart.toISOString(),\n    source_episode: sourceEpisode\n  };\n  const key = [release.title, release.language, release.episode, release.starts_at, release.url].join('|');\n  if (!seen.has(key)) {\n    seen.add(key);\n    releases.push(release);\n  }\n}\nreturn [{ json: {\n  contract_version: 1,\n  week_start: config.target_week_start,\n  source_week_start: config.source_week_start,\n  predicted: true,\n  languages: [...enabled].sort(),\n  releases\n} }];"
       },
       "id": "c636b9a1-9a57-4233-8c97-343d85c25ac4",
-      "name": "Validate Forecast JSON",
+      "name": "Build Forecast",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [220, 0]
     },
     {
       "parameters": {
-        "jsCode": "const payload = $json;\nreturn payload.releases.map((release) => ({\n  json: {\n    week_start: payload.week_start,\n    source_week_start: payload.source_week_start,\n    ...release\n  }\n}));"
+        "jsCode": "const payload = $json;\nif (payload.contract_version !== 1 || payload.predicted !== true || !Array.isArray(payload.releases)) {\n  throw new Error('Invalid forecast contract');\n}\nreturn payload.releases.map((release) => ({\n  json: {\n    contract_version: payload.contract_version,\n    week_start: payload.week_start,\n    source_week_start: payload.source_week_start,\n    ...release\n  }\n}));"
       },
       "id": "7bf56560-4fc6-407c-bc45-ab6973bed9de",
       "name": "One Item Per Event",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [480, 0]
+      "position": [460, 0]
     }
   ],
   "connections": {
     "Monday Morning": {
-      "main": [[{"node": "Resolve Target Monday", "type": "main", "index": 0}]]
+      "main": [[{"node": "Forecast Configuration", "type": "main", "index": 0}]]
     },
-    "Resolve Target Monday": {
-      "main": [[{"node": "Build Weekly Forecast", "type": "main", "index": 0}]]
+    "Forecast Configuration": {
+      "main": [[{"node": "Fetch Previous Week", "type": "main", "index": 0}]]
     },
-    "Build Weekly Forecast": {
-      "main": [[{"node": "Validate Forecast JSON", "type": "main", "index": 0}]]
+    "Fetch Previous Week": {
+      "main": [[{"node": "Extract Releases", "type": "main", "index": 0}]]
     },
-    "Validate Forecast JSON": {
+    "Extract Releases": {
+      "main": [[{"node": "Build Forecast", "type": "main", "index": 0}]]
+    },
+    "Build Forecast": {
       "main": [[{"node": "One Item Per Event", "type": "main", "index": 0}]]
     }
   },

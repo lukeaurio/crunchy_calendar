@@ -1,4 +1,5 @@
 {
+  "$schema": "./contracts/watching.schema.json",
   "shows": [
     "mushoku tensei jobless reincarnation",
     "chainsaw man",

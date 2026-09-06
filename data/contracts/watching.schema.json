@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crunchy-calendar.local/contracts/watching.schema.json",
+  "title": "Crunchy Calendar watchlist",
+  "type": "object",
+  "required": ["shows"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "shows": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"type": "string", "minLength": 1},
+          {
+            "type": "object",
+            "required": ["title"],
+            "properties": {
+              "title": {"type": "string", "minLength": 1},
+              "aliases": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,81 @@
+{
+  "name": "Crunchyroll Seasonal Discovery (GitHub Python)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Monthly Discovery",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "monthsInterval": 1,
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "2",
+      "name": "Clone Crunchy Calendar",
+      "type": "n8n-nodes-base.git",
+      "typeVersion": 1.1,
+      "position": [260, 0],
+      "parameters": {
+        "operation": "clone",
+        "authentication": "none",
+        "repositoryPath": "=/tmp/crunchy-calendar-{{$execution.id}}",
+        "sourceRepository": "https://github.com/REPLACE_ME/crunchyCalendar.git"
+      }
+    },
+    {
+      "id": "3",
+      "name": "Run Python Discovery",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [520, 0],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=set -eu\nexecution_id='{{$execution.id}}'\ncase \"$execution_id\" in\n  ''|*[!A-Za-z0-9_-]*) echo 'Invalid n8n execution ID' >&2; exit 64 ;;\nesac\nrepo_dir=\"/tmp/crunchy-calendar-$execution_id\"\ncleanup() { rm -rf -- \"$repo_dir\"; }\ntrap cleanup EXIT HUP INT TERM\nstate_dir=\"${CRUNCHY_CALENDAR_STATE_DIR:-}\"\nif [ -z \"$state_dir\" ]; then echo 'CRUNCHY_CALENDAR_STATE_DIR is required' >&2; exit 78; fi\ncase \"$state_dir\" in /*) ;; *) echo 'CRUNCHY_CALENDAR_STATE_DIR must be absolute' >&2; exit 78 ;; esac\ncase \"$state_dir\" in *'/../'*|*/..|*'/./'*|*/.) echo 'CRUNCHY_CALENDAR_STATE_DIR must not contain dot traversal' >&2; exit 78 ;; esac\ncase \"$state_dir\" in /|/tmp|/tmp/*|/var|/home|/home/node|\"$repo_dir\"|\"$repo_dir\"/*) echo 'CRUNCHY_CALENDAR_STATE_DIR is too broad or temporary' >&2; exit 78 ;; esac\ncommand -v python3 >/dev/null 2>&1 || { echo 'python3 is not installed on the n8n execution host' >&2; exit 69; }\ntest -f \"$repo_dir/crunchy_calendar/__main__.py\" || { echo 'Git checkout does not contain crunchy_calendar/__main__.py' >&2; exit 66; }\nmkdir -p -- \"$state_dir\"\ntest -w \"$state_dir\" || { echo 'CRUNCHY_CALENDAR_STATE_DIR is not writable' >&2; exit 73; }\ncd \"$repo_dir\"\npython3 -m crunchy_calendar --discover --discovery-state \"$state_dir/discovery.json\""
+      }
+    },
+    {
+      "id": "4",
+      "name": "Parse Discovery JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const result = $input.first().json;\nif (result.exitCode !== undefined && result.exitCode !== 0) {\n  throw new Error(`Python discovery failed with exit code ${result.exitCode}: ${result.stderr || 'no stderr'}`);\n}\nif (typeof result.stdout !== 'string' || !result.stdout.trim()) {\n  throw new Error('Python discovery returned empty stdout');\n}\nlet payload;\ntry {\n  payload = JSON.parse(result.stdout);\n} catch (error) {\n  throw new Error(`Python discovery returned invalid JSON: ${error.message}`);\n}\nif (payload.contract_version !== 1 || !Array.isArray(payload.new_shows) || !Array.isArray(payload.seen_shows)) {\n  throw new Error('Python discovery returned an unsupported contract');\n}\nreturn [{ json: payload }];"
+      }
+    }
+  ],
+  "connections": {
+    "Monthly Discovery": {
+      "main": [[{"node": "Clone Crunchy Calendar", "type": "main", "index": 0}]]
+    },
+    "Clone Crunchy Calendar": {
+      "main": [[{"node": "Run Python Discovery", "type": "main", "index": 0}]]
+    },
+    "Run Python Discovery": {
+      "main": [[{"node": "Parse Discovery JSON", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

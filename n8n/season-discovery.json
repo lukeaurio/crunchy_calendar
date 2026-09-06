@@ -18,84 +18,129 @@
       "name": "Monthly Discovery",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -540,
-        0
-      ]
+      "position": [-700, 0]
     },
     {
       "parameters": {
-        "jsCode": "const requested = $json.season;\nconst month = $now.month;\nconst name = month <= 3 ? 'winter' : month <= 6 ? 'spring' : month <= 9 ? 'summer' : 'fall';\nconst season = requested === undefined || requested === null || requested === ''\n  ? `${name}-${$now.year}`\n  : String(requested).trim().toLowerCase();\nif (!/^(spring|summer|fall|winter)-\\d{4}$/.test(season)) {\n  throw new Error(`Invalid season: ${season}`);\n}\nreturn [{ json: { season } }];"
+        "jsCode": "const requested = $json.season;\nconst month = $now.month;\nconst name = month <= 3 ? 'winter' : month <= 6 ? 'spring' : month <= 9 ? 'summer' : 'fall';\nconst season = requested === undefined || requested === null || requested === ''\n  ? `${name}-${$now.year}`\n  : String(requested).trim().toLowerCase();\nif (!/^(spring|summer|fall|winter)-\\d{4}$/.test(season)) {\n  throw new Error(`Invalid season: ${season}`);\n}\nconst deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {\n  const random = Math.floor(Math.random() * 16);\n  const value = character === 'x' ? random : (random & 0x3) | 0x8;\n  return value.toString(16);\n});\nreturn [{ json: { season, device_id: deviceId } }];"
       },
       "id": "f8015965-db8c-4132-a8a7-393333f4d46f",
-      "name": "Resolve and Validate Season",
+      "name": "Prepare Discovery",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -300,
-        0
-      ]
+      "position": [-480, 0]
     },
     {
       "parameters": {
-        "command": "=nix develop path:/opt/crunchyCalendar -c python -m crunchy_calendar --season {{ $json.season }} --discover --discovery-state /var/lib/crunchy-calendar/discovery.json"
+        "method": "POST",
+        "url": "https://www.crunchyroll.com/auth/v1/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic dC1rZGdwMmg4YzNqdWI4Zm4wZnE6eWZMRGZNZnJZdktYaDRKWFMxTEVJMmNDcXUxdjVXYW4="
+            },
+            {
+              "name": "ETP-Anonymous-ID",
+              "value": "={{ $json.device_id }}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "grant_type", "value": "client_id"},
+            {"name": "scope", "value": "offline_access"},
+            {"name": "device_id", "value": "={{ $json.device_id }}"},
+            {"name": "device_type", "value": "com.crunchyroll.web"}
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
       },
       "id": "0df89a6c-0713-42b6-b538-f05f75714f02",
-      "name": "Run Seasonal Discovery",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [
-        -40,
-        0
-      ]
+      "name": "Request Anonymous Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-240, 0]
     },
     {
       "parameters": {
-        "jsCode": "if (typeof $json.stdout !== 'string' || $json.stdout.trim() === '') {\n  throw new Error('Discovery command returned no JSON');\n}\nlet payload;\ntry {\n  payload = JSON.parse($json.stdout);\n} catch (error) {\n  throw new Error(`Discovery command returned invalid JSON: ${error.message}`);\n}\nif (!/^(spring|summer|fall|winter)-\\d{4}$/.test(payload.season ?? '')) {\n  throw new Error('Discovery response has an invalid season');\n}\nif (!Number.isInteger(payload.show_count) || payload.show_count < 1) {\n  throw new Error('Discovery response has an invalid show_count');\n}\nif (!Array.isArray(payload.new_shows) || !Array.isArray(payload.seen_shows)) {\n  throw new Error('Discovery response is missing show arrays');\n}\nif (payload.show_count !== payload.new_shows.length + payload.seen_shows.length) {\n  throw new Error('Discovery response show_count does not match its arrays');\n}\nreturn [{ json: payload }];"
+        "method": "GET",
+        "url": "https://www.crunchyroll.com/content/v2/discover/browse",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "seasonal_tag", "value": "={{ $('Prepare Discovery').first().json.season }}"},
+            {"name": "locale", "value": "en-US"},
+            {"name": "n", "value": "100"},
+            {"name": "start", "value": "0"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "=Bearer {{ $json.access_token }}"},
+            {"name": "Origin", "value": "https://www.crunchyroll.com"},
+            {"name": "Referer", "value": "=https://www.crunchyroll.com/simulcasts/seasons/{{ $('Prepare Discovery').first().json.season }}"},
+            {"name": "User-Agent", "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"},
+            {"name": "Accept", "value": "application/json"}
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "e58c5c17-7316-49d1-a587-ae4b4f378f68",
+      "name": "Fetch Seasonal Catalog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst season = $('Prepare Discovery').first().json.season;\nif (!Number.isInteger(payload.total) || payload.total < 1 || !Array.isArray(payload.data)) {\n  throw new Error('Seasonal catalog has an invalid total or data list');\n}\nif (payload.total !== payload.data.length) {\n  throw new Error(`Seasonal catalog pagination is incomplete: expected ${payload.total}, received ${payload.data.length}`);\n}\nconst normalizeTitle = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\nconst observedAt = $now.toISO();\nconst shows = [];\nconst seenKeys = new Set();\nfor (const item of payload.data) {\n  if (!item || item.type !== 'series' || typeof item.id !== 'string' || !item.id.trim() || typeof item.title !== 'string' || !item.title.trim() || typeof item.slug_title !== 'string' || !item.slug_title.trim()) {\n    throw new Error('Seasonal catalog contains a series with missing identity fields');\n  }\n  const showKey = normalizeTitle(item.title);\n  if (!showKey || seenKeys.has(showKey)) continue;\n  seenKeys.add(showKey);\n  shows.push({\n    show_key: showKey,\n    title: item.title.replace(/\\s+/g, ' ').trim(),\n    url: `https://www.crunchyroll.com/series/${item.id}/${item.slug_title}`,\n    season\n  });\n}\nif (!shows.length) throw new Error(`Seasonal catalog for ${season} contained no series`);\nconst state = $getWorkflowStaticData('global');\nif (state.contract_version !== undefined && state.contract_version !== 1) {\n  throw new Error(`Unsupported discovery state contract: ${state.contract_version}`);\n}\nif (state.shows !== undefined && (!state.shows || Array.isArray(state.shows) || typeof state.shows !== 'object')) {\n  throw new Error('Discovery state shows value must be an object');\n}\nstate.contract_version = 1;\nstate.shows ??= {};\nconst current = shows.map((show) => {\n  const previous = state.shows[show.show_key];\n  const seenBefore = previous !== undefined;\n  if (seenBefore && (!previous || typeof previous !== 'object')) {\n    throw new Error(`Invalid discovery state for ${show.show_key}`);\n  }\n  state.shows[show.show_key] = {\n    ...show,\n    first_seen: seenBefore && typeof previous.first_seen === 'string' ? previous.first_seen : observedAt,\n    last_seen: observedAt\n  };\n  return { ...state.shows[show.show_key], seen_before: seenBefore };\n});\ncurrent.sort((left, right) => left.title.localeCompare(right.title));\nreturn [{ json: {\n  contract_version: 1,\n  season,\n  show_count: current.length,\n  new_shows: current.filter((show) => !show.seen_before),\n  seen_shows: current.filter((show) => show.seen_before)\n} }];"
       },
       "id": "e9ca1c73-ea0e-4f91-89b6-da191f4ab88c",
-      "name": "Validate Discovery JSON",
+      "name": "Record Seasonal Discovery",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        220,
-        0
-      ]
+      "position": [240, 0]
     }
   ],
   "connections": {
     "Monthly Discovery": {
-      "main": [
-        [
-          {
-            "node": "Resolve and Validate Season",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Prepare Discovery", "type": "main", "index": 0}]]
     },
-    "Resolve and Validate Season": {
-      "main": [
-        [
-          {
-            "node": "Run Seasonal Discovery",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Prepare Discovery": {
+      "main": [[{"node": "Request Anonymous Token", "type": "main", "index": 0}]]
     },
-    "Run Seasonal Discovery": {
-      "main": [
-        [
-          {
-            "node": "Validate Discovery JSON",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Request Anonymous Token": {
+      "main": [[{"node": "Fetch Seasonal Catalog", "type": "main", "index": 0}]]
+    },
+    "Fetch Seasonal Catalog": {
+      "main": [[{"node": "Record Seasonal Discovery", "type": "main", "index": 0}]]
     }
   },
   "pinData": {},

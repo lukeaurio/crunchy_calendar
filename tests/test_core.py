@@ -132,6 +132,9 @@ class CoreTests(unittest.TestCase):
             watching.write_text(json.dumps({"shows": [{"title": "One Piece", "aliases": "bad"}]}))
             with self.assertRaisesRegex(ValueError, "aliases"):
                 load_watching(watching)
+            watching.write_text(json.dumps({"shows": [{"title": "One Piece", "aliases": [""]}]}))
+            with self.assertRaisesRegex(ValueError, "non-empty"):
+                load_watching(watching)
 
     def test_rolling_discovery_tracks_seen_titles(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -139,6 +142,8 @@ class CoreTests(unittest.TestCase):
             fetcher = lambda _: CALENDAR_HTML
             first = discover(fetcher, samples=1, days=1, anchor=date(2026, 8, 24), state_path=state)
             second = discover(fetcher, samples=1, days=1, anchor=date(2026, 8, 24), state_path=state)
+            self.assertEqual(first["contract_version"], 1)
+            self.assertEqual(json.loads(state.read_text())["contract_version"], 1)
             self.assertEqual(len(first["new_shows"]), 1)
             self.assertEqual(len(second["seen_shows"]), 1)
 
@@ -149,6 +154,7 @@ class CoreTests(unittest.TestCase):
             fetcher = lambda _: shows
             first = discover_season("summer-2026", fetcher, state)
             second = discover_season("summer-2026", fetcher, state)
+            self.assertEqual(first["contract_version"], 1)
             self.assertEqual(first["show_count"], 2)
             self.assertEqual(len(first["new_shows"]), 2)
             self.assertEqual(len(second["seen_shows"]), 2)
