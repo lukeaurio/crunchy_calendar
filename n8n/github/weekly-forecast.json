@@ -36,7 +36,7 @@
         "operation": "clone",
         "authentication": "none",
         "repositoryPath": "=/tmp/crunchy-calendar-{{$execution.id}}",
-        "sourceRepository": "https://github.com/REPLACE_ME/crunchyCalendar.git"
+        "sourceRepository": "https://github.com/lukeaurio/crunchy_calendar.git"
       }
     },
     {

@@ -33,9 +33,8 @@ GitHub's raw URL for a private repository requires authentication that n8n's
 editor URL importer can't supply. In that case, download the export while
 signed in to GitHub and use **Import from File** instead.
 
-The exports are inactive. After import, replace
-`https://github.com/REPLACE_ME/crunchyCalendar.git` in **Clone Crunchy Calendar**
-with the repository's HTTPS clone URL.
+The exports are inactive and already point at
+`https://github.com/lukeaurio/crunchy_calendar.git`.
 
 For a public source repository, leave Authentication set to **None**. For a private
 repository, create an n8n Git credential using the GitHub username and a
